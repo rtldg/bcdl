@@ -5,7 +5,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["rtldg <rtldg@protonmail.com>"]
 license = "MIT"
-license-file = "LICENSE"
 readme = "README.md"
 homepage = "https://github.com/rtldg/bcdl"
 repository = "https://github.com/rtldg/bcdl"
