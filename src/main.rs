@@ -30,7 +30,7 @@ enum Commands {
 	Batch { file: String },
 }
 
-static ARGS: LazyLock<Args> = LazyLock::new(|| Args::parse());
+static ARGS: LazyLock<Args> = LazyLock::new(Args::parse);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
 	match &ARGS.command {
 		Commands::Download { url } => {
-			urls.push(reqwest::Url::parse(&url)?);
+			urls.push(reqwest::Url::parse(url)?);
 		}
 		Commands::Batch { file } => {
 			let content = tokio::fs::read_to_string(file).await?;
@@ -242,7 +242,7 @@ fn parse_pagedata(document: &scraper::Html) -> anyhow::Result<serde_json::Value>
 
 impl ItemInfo {
 	pub fn parse(html: &str) -> anyhow::Result<ItemInfo> {
-		let document = scraper::Html::parse_document(&html);
+		let document = scraper::Html::parse_document(html);
 
 		static LDJSON_SELECTOR: LazyLock<scraper::Selector> =
 			LazyLock::new(|| scraper::Selector::parse(r#"script[type="application/ld+json"]"#).unwrap());
@@ -291,7 +291,7 @@ impl ItemInfo {
 		static PATH_TO_ITEM_ID: LazyLock<JsonPath> =
 			LazyLock::new(|| JsonPath::parse("$.additionalProperty[?@.name == 'item_id'].value").unwrap());
 		let item_id = PATH_TO_ITEM_ID
-			.query(&album_release)
+			.query(album_release)
 			.exactly_one()
 			.context("item_id missing?")?
 			.as_i64()
@@ -306,6 +306,7 @@ impl ItemInfo {
 			None
 		};
 		// TODO: shit looking...
+		#[allow(clippy::collapsible_else_if)]
 		let free_download = if item_type == ItemType::Album {
 			if ldjson.get("numTracks").unwrap() == 0 {
 				None
@@ -455,8 +456,8 @@ async fn download_item(
 			let messages: serde_json::Value = client
 				.get(format!(
 					"{API_BASE_URL}?action=getMessages&login={}&domain={}",
-					random_email.split("@").next().unwrap(),
-					random_email.split("@").skip(1).next().unwrap()
+					random_email.split("@").nth(0).unwrap(),
+					random_email.split("@").nth(1).unwrap(),
 				))
 				.send()
 				.await?
@@ -472,8 +473,8 @@ async fn download_item(
 					let resp: serde_json::Value = client
 						.get(format!(
 							"{API_BASE_URL}?action=readMessage&login={}&domain={}&id={}",
-							random_email.split("@").next().unwrap(),
-							random_email.split("@").skip(1).next().unwrap(),
+							random_email.split("@").nth(0).unwrap(),
+							random_email.split("@").nth(1).unwrap(),
 							message["id"].as_i64().unwrap()
 						))
 						.send()
@@ -551,7 +552,7 @@ async fn download_item(
 	let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<bytes::Bytes>();
 	let file_writer = tokio::spawn(async move {
 		while let Some(chunk) = rx.recv().await {
-			let _ = file.write_all(&chunk).await.unwrap();
+			file.write_all(&chunk).await.unwrap();
 		}
 	});
 	while let Some(item) = stream.next().await {
