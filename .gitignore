@@ -1,0 +1,7 @@
+/target
+*.env
+*.html
+
+download.txt
+music
+run.cmd
