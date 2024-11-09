@@ -13,10 +13,6 @@ use futures_util::StreamExt;
 use serde_json_path::JsonPath;
 use tokio::io::AsyncWriteExt;
 
-// https://www.whatismybrowser.com/guides/the-latest-user-agent/chrome
-const LATEST_USER_AGENT: &str =
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, flatten_help = true, disable_help_subcommand = true)]
 struct Args {
@@ -66,13 +62,6 @@ async fn main() -> anyhow::Result<()> {
 	download_urls(&urls, std::path::Path::new(&ARGS.music_folder)).await
 }
 
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-	reqwest::ClientBuilder::new()
-		.user_agent(LATEST_USER_AGENT)
-		.build()
-		.unwrap()
-});
-
 async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) -> anyhow::Result<()> {
 	let mut items = vec![];
 	let mut artists = vec![];
@@ -87,11 +76,38 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 		}
 	}
 
+	let chrome_user_agent = {
+		let resp: Vec<String> = reqwest::Client::new()
+			.get("https://jnrbsn.github.io/user-agents/user-agents.json")
+			.header(
+				"user-agent",
+				format!(
+					"{}/{} ({})",
+					env!("CARGO_PKG_NAME"),
+					env!("CARGO_PKG_VERSION"),
+					env!("CARGO_PKG_REPOSITORY")
+				),
+			)
+			.send()
+			.await?
+			.json()
+			.await?;
+		resp.iter()
+			.find(|s| s.contains("Windows") && !s.contains("Edg") && !s.contains("Firefox"))
+			.unwrap()
+			.clone()
+	};
+
+	let client = reqwest::ClientBuilder::new()
+		.user_agent(chrome_user_agent)
+		.build()
+		.unwrap();
+
 	for artist in artists {
 		tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		println!("Checking for items from {}", artist.as_str());
 
-		let html = CLIENT.get(artist.clone()).send().await?.text().await?;
+		let html = client.get(artist.clone()).send().await?.text().await?;
 		let document = scraper::Html::parse_document(&html);
 		static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
 			LazyLock::new(|| scraper::Selector::parse("#music-grid > li > a").unwrap());
@@ -124,7 +140,7 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 	for item in &items {
 		tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		println!("Checking {}", item.as_str());
-		download_item(item, music_folder).await?;
+		download_item(&client, item, music_folder).await?;
 	}
 
 	Ok(())
@@ -358,11 +374,15 @@ impl ItemInfo {
 	}
 }
 
-async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) -> anyhow::Result<()> {
+async fn download_item(
+	client: &reqwest::Client,
+	item_url: &reqwest::Url,
+	music_folder: &std::path::Path,
+) -> anyhow::Result<()> {
 	let item_html = if let Ok(path) = std::env::var("TEST_HTML") {
 		tokio::fs::read_to_string(path).await?
 	} else {
-		CLIENT.get(item_url.clone()).send().await?.text().await?
+		client.get(item_url.clone()).send().await?.text().await?
 	};
 	//println!("{html}");
 
@@ -396,7 +416,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 		url.clone()
 	} else {
 		const API_BASE_URL: &str = "https://www.1secmail.com/api/v1/";
-		let random_email: serde_json::Value = CLIENT
+		let random_email: serde_json::Value = client
 			.get(format!("{API_BASE_URL}?action=genRandomMailbox&count=1"))
 			.send()
 			.await?
@@ -424,7 +444,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 
 		let mut email_form_url = item_url.clone();
 		email_form_url.set_path("/email_download");
-		let resp: serde_json::Value = CLIENT.post(email_form_url).form(&form).send().await?.json().await?;
+		let resp: serde_json::Value = client.post(email_form_url).form(&form).send().await?.json().await?;
 		if !resp["ok"].as_bool().unwrap() {
 			bail!("failed to download with email...");
 		}
@@ -432,7 +452,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 		let mut url = None;
 		for _ in 0..120 {
 			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-			let messages: serde_json::Value = CLIENT
+			let messages: serde_json::Value = client
 				.get(format!(
 					"{API_BASE_URL}?action=getMessages&login={}&domain={}",
 					random_email.split("@").next().unwrap(),
@@ -449,7 +469,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 				.find(|m| m["from"].as_str().unwrap().ends_with("bandcamp.com"))
 			{
 				if message["from"].as_str().unwrap().ends_with("bandcamp.com") {
-					let resp: serde_json::Value = CLIENT
+					let resp: serde_json::Value = client
 						.get(format!(
 							"{API_BASE_URL}?action=readMessage&login={}&domain={}&id={}",
 							random_email.split("@").next().unwrap(),
@@ -478,7 +498,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 		url.unwrap()
 	};
 
-	let download_page_html = CLIENT.get(download_page_url).send().await?.text().await?;
+	let download_page_html = client.get(download_page_url).send().await?.text().await?;
 	let download_page_document = scraper::Html::parse_document(&download_page_html);
 	let pagedata = parse_pagedata(&download_page_document)?;
 	// println!("{}", serde_json::to_string_pretty(&pagedata)?);
@@ -497,7 +517,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 	let flac_download_url = loop {
 		flac_query_url = flac_query_url.replace("/download/", "/statdownload/") + "&.vrs=1";
 		// println!("flac_query_url='{flac_query_url}'");
-		let query_json: serde_json::Value = CLIENT
+		let query_json: serde_json::Value = client
 			.get(&flac_query_url)
 			.header("Accept", "application/json, text/javascript")
 			.send()
@@ -514,7 +534,7 @@ async fn download_item(item_url: &reqwest::Url, music_folder: &std::path::Path) 
 	};
 
 	// Copied from https://gist.github.com/giuliano-macedo/4d11d6b3bb003dba3a1b53f43d81b30d
-	let resp = CLIENT.get(&flac_download_url).send().await?;
+	let resp = client.get(&flac_download_url).send().await?;
 	let total_size = resp.content_length().context("no content_length for download?")?;
 	//
 	let pb = indicatif::ProgressBar::new(total_size);
