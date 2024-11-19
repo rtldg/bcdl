@@ -10,6 +10,11 @@ homepage = "https://github.com/rtldg/bcdl"
 repository = "https://github.com/rtldg/bcdl"
 categories = ["command-line-utilities"]
 
+[profile.release]
+lto = true
+#strip = true
+opt-level = "s"
+
 [dependencies]
 anyhow = { version = "1.0.91", features = ["backtrace"] }
 bytes = "1.8.0"
@@ -19,7 +24,7 @@ futures-util = "0.3.31"
 indicatif = "0.17.8"
 jiff = "0.1.13"
 # rand = "0.8.5"
-reqwest = { version = "0.12.8", features = ["json", "stream"] }
+reqwest = { version = "0.12.9", default-features = false, features = ["http2", "charset", "rustls-tls", "blocking", "json", "stream"] }
 scraper = "0.21"
 serde_json = "1.0.132"
 serde_json_path = "0.7.1"
