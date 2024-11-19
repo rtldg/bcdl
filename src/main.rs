@@ -57,6 +57,8 @@ async fn main() -> anyhow::Result<()> {
 		}
 	}
 
+	tokio::fs::create_dir_all(&ARGS.music_folder).await?;
+
 	// println!("{:?}", urls);
 
 	download_urls(&urls, std::path::Path::new(&ARGS.music_folder)).await
