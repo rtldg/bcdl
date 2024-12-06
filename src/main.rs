@@ -16,11 +16,12 @@ use tokio::io::AsyncWriteExt;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, flatten_help = true, disable_help_subcommand = true)]
 struct Args {
-	#[arg(short, long, env = "MUSIC_FOLDER")]
+	#[arg(short, long, env = "MUSIC_FOLDER", default_value = "./music")]
 	music_folder: String,
 	#[arg(short, long, env = "NO_ARTIST_SUBFOLDER")]
 	no_artist_subfolder: Option<bool>,
-	batch_file_or_url: String,
+	#[arg(required(true))]
+	urls_or_batch_file: Vec<String>,
 }
 
 static ARGS: LazyLock<Args> = LazyLock::new(Args::parse);
@@ -35,14 +36,16 @@ async fn main() -> anyhow::Result<()> {
 
 	let mut urls = vec![];
 
-	if ARGS.batch_file_or_url.starts_with("http://") || ARGS.batch_file_or_url.starts_with("https://") {
-		urls.push(reqwest::Url::parse(&ARGS.batch_file_or_url)?);
-	} else {
-		let content = tokio::fs::read_to_string(&ARGS.batch_file_or_url).await?;
-		for line in content.lines() {
-			let line = line.trim();
-			if !line.is_empty() {
-				urls.push(reqwest::Url::parse(line)?);
+	for arg in &ARGS.urls_or_batch_file {
+		if arg.starts_with("http://") || arg.starts_with("https://") {
+			urls.push(reqwest::Url::parse(arg)?);
+		} else {
+			let content = tokio::fs::read_to_string(arg).await?;
+			for line in content.lines() {
+				let line = line.trim();
+				if !line.is_empty() {
+					urls.push(reqwest::Url::parse(line)?);
+				}
 			}
 		}
 	}
