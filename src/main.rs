@@ -34,6 +34,11 @@ async fn main() -> anyhow::Result<()> {
 		}
 	}
 
+	unsafe {
+		// unsafe in Rust 2024
+		std::env::set_var("RUST_BACKTRACE", "full");
+	}
+
 	let mut urls = vec![];
 
 	for arg in &ARGS.urls_or_batch_file {
