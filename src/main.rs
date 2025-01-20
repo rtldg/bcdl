@@ -77,6 +77,7 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 	}
 
 	let chrome_user_agent = {
+		/*
 		let resp: Vec<String> = reqwest::Client::new()
 			.get("https://jnrbsn.github.io/user-agents/user-agents.json")
 			.header(
@@ -96,6 +97,13 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 			.find(|s| s.contains("Windows") && !s.contains("Edg") && !s.contains("Firefox"))
 			.unwrap()
 			.clone()
+		*/
+		format!(
+			"{}/{} ({})",
+			env!("CARGO_PKG_NAME"),
+			env!("CARGO_PKG_VERSION"),
+			env!("CARGO_PKG_REPOSITORY")
+		)
 	};
 
 	let client = reqwest::ClientBuilder::new()
