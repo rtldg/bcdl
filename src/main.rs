@@ -516,7 +516,13 @@ async fn download_item(
 
 	println!("  waiting for download to be ready...");
 	let flac_download_url = loop {
-		flac_query_url = flac_query_url.replace("/download/", "/statdownload/") + "&.vrs=1";
+		flac_query_url = flac_query_url.replace("/download/", "/statdownload/");
+		if !flac_query_url.contains("&.rand=") {
+			flac_query_url += &format!("&.rand={}", rand::random::<u64>());
+		}
+		if !flac_query_url.contains("&.vrs=1") {
+			flac_query_url += "&.vrs=1";
+		}
 		// println!("flac_query_url='{flac_query_url}'");
 		let query_json: serde_json::Value = client
 			.get(&flac_query_url)
