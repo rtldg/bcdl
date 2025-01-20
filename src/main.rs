@@ -536,6 +536,15 @@ async fn download_item(
 
 	// Copied from https://gist.github.com/giuliano-macedo/4d11d6b3bb003dba3a1b53f43d81b30d
 	let resp = client.get(&flac_download_url).send().await?;
+
+	if !resp.status().is_success() {
+		println!("  Error status! ({})", resp.status());
+		println!("  Error status! ({})", resp.status());
+		println!("  Error status! ({})", resp.status());
+		println!("  Error status! ({})", resp.status());
+		return Ok(());
+	}
+
 	let total_size = resp.content_length().context("no content_length for download?")?;
 	//
 	let pb = indicatif::ProgressBar::new(total_size);
