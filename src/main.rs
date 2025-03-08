@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use anyhow::{anyhow, bail, Context};
 use clap::Parser;
 use futures_util::StreamExt;
+use serde_json::json;
 use serde_json_path::JsonPath;
 use tokio::io::AsyncWriteExt;
 
@@ -424,14 +425,9 @@ async fn download_item(
 	let download_page_url = if let Some(FreeDownload::Page(url)) = &item_info.free_download {
 		url.clone()
 	} else {
-		const API_BASE_URL: &str = "https://www.1secmail.com/api/v1/";
-		let random_email: serde_json::Value = client
-			.get(format!("{API_BASE_URL}?action=genRandomMailbox&count=1"))
-			.send()
-			.await?
-			.json()
-			.await?;
-		let random_email = random_email[0].as_str().unwrap();
+		const API_BASE_URL: &str = "https://api.maildrop.cc/graphql";
+		let random_inbox = rand::random::<u64>().to_string();
+		let random_email = format!("{random_inbox}@maildrop.cc");
 		println!("  using email {}", random_email);
 
 		let item_id = item_info.item_id.to_string();
@@ -446,7 +442,7 @@ async fn download_item(
 					"track"
 				},
 			),
-			("address", random_email),
+			("address", &random_email),
 			("country", "US"),
 			("postcode", "0"),
 		]);
@@ -460,43 +456,66 @@ async fn download_item(
 
 		let mut url = None;
 		for _ in 0..120 {
-			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-			let messages: serde_json::Value = client
-				.get(format!(
-					"{API_BASE_URL}?action=getMessages&login={}&domain={}",
-					random_email.split("@").nth(0).unwrap(),
-					random_email.split("@").nth(1).unwrap(),
-				))
+			tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+			// {"query":"query Example { inbox(mailbox:\"testing\") { id headerfrom subject date } }"}
+			let inboxdata: serde_json::Value = client
+				.post(API_BASE_URL)
+				.json(&json!({
+					"query": format!(r#"query Example {{ inbox(mailbox:"{random_inbox}") {{ id headerfrom }} }}"#),
+				}))
 				.send()
 				.await?
 				.json()
 				.await?;
-			if let Some(message) = messages
+			/*
+			{
+				"data": {
+					"inbox": [{
+						"id": "AIm59ihdGy",
+						"headerfrom": "test@test.com",
+						"subject": "Testing!",
+						"date": "2023-02-09T23:51:14.411Z"
+					}]
+				}
+			}
+			*/
+			if let Some(message) = inboxdata["data"]["inbox"]
 				.as_array()
 				.unwrap()
 				.iter()
-				.find(|m| m["from"].as_str().unwrap().ends_with("bandcamp.com"))
+				.find(|m| m["headerfrom"].as_str().unwrap().contains("bandcamp.com"))
 			{
-				if message["from"].as_str().unwrap().ends_with("bandcamp.com") {
-					let resp: serde_json::Value = client
-						.get(format!(
-							"{API_BASE_URL}?action=readMessage&login={}&domain={}&id={}",
-							random_email.split("@").nth(0).unwrap(),
-							random_email.split("@").nth(1).unwrap(),
-							message["id"].as_i64().unwrap()
-						))
-						.send()
-						.await?
-						.json()
-						.await?;
-					let email_document = scraper::Html::parse_document(resp["htmlBody"].as_str().unwrap());
-					static A_SELECTOR: LazyLock<scraper::Selector> =
-						LazyLock::new(|| scraper::Selector::parse("a").unwrap());
-					url = Some(reqwest::Url::parse(
-						email_document.select(&A_SELECTOR).next().unwrap().attr("href").unwrap(),
-					)?);
-					break;
+				/*
+				{"query":"query Example {\n  message(mailbox:\"testing\", id:\"AIm59ihdGy\") { id headerfrom subject date }\n}"}
+				{
+					"data": {
+						"message": {
+							"id": "AIm59ihdGy",
+							"headerfrom": "Test <test@test.com>",
+							"subject": "Testing!",
+							"date": "2023-02-09T23:51:14.411Z"
+						}
+					}
 				}
+				*/
+				let id = message["id"].as_str().unwrap();
+				let resp: serde_json::Value = client
+					.post(API_BASE_URL)
+					.json(&json!({
+						"query": format!(r#"query Example {{ message(mailbox:"{random_inbox}", id:"{id}") {{ html }} }}"#),
+					}))
+					.send()
+					.await?
+					.json()
+					.await?;
+				// {"data":{"inbox":[{"id":"AIm59ihdGy","headerfrom":"test@heluna.com","subject":"test Thu, 09 Feb 2023 23:51:14 +0000","date":"2023-02-09T23:51:14.411Z"}]}}
+				let email_document = scraper::Html::parse_document(resp["data"]["message"]["html"].as_str().unwrap());
+				static A_SELECTOR: LazyLock<scraper::Selector> =
+					LazyLock::new(|| scraper::Selector::parse("a").unwrap());
+				url = Some(reqwest::Url::parse(
+					email_document.select(&A_SELECTOR).next().unwrap().attr("href").unwrap(),
+				)?);
+				break;
 			}
 		}
 
