@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 			let content = tokio::fs::read_to_string(arg).await?;
 			for line in content.lines() {
 				let line = line.trim();
-				if !line.is_empty() {
+				if !line.is_empty() && !line.starts_with("#") {
 					urls.push(reqwest::Url::parse(line)?);
 				}
 			}
