@@ -5,14 +5,18 @@
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
 
-use std::sync::LazyLock;
+use std::{
+	io::BufReader,
+	path::PathBuf,
+	sync::LazyLock,
+};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::Parser;
 use futures_util::StreamExt;
 use serde_json::json;
 use serde_json_path::JsonPath;
-use tokio::io::AsyncWriteExt;
+use tokio::{io::AsyncWriteExt, task::spawn_blocking};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, flatten_help = true, disable_help_subcommand = true)]
@@ -596,6 +600,7 @@ async fn download_item(
 		while let Some(chunk) = rx.recv().await {
 			file.write_all(&chunk).await.unwrap();
 		}
+		file.flush().await.unwrap();
 	});
 	while let Some(item) = stream.next().await {
 		let chunk = item?;
@@ -609,7 +614,28 @@ async fn download_item(
 	file_writer.await?;
 
 	pb.finish_with_message(format!("  Downloaded {}", download_path.display()));
+
+	if download_path.extension().unwrap() == "zip" {
+		println!("  extracting zip...");
+		spawn_blocking({
+			let download_path = download_path.clone();
+			move || extract_zip(download_path)
+		})
+		.await
+		.unwrap()
+		.unwrap();
+		println!("  deleting zip...");
+		tokio::fs::remove_file(&download_path).await.unwrap();
+	}
+
 	println!("  finished");
 
+	Ok(())
+}
+
+fn extract_zip(mut path: PathBuf) -> anyhow::Result<()> {
+	let reader = BufReader::new(std::fs::File::open(&path)?);
+	path.set_extension("");
+	zip_extract::extract(reader, &path, true)?;
 	Ok(())
 }
