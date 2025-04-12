@@ -123,12 +123,18 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 		let html = client.get(artist.clone()).send().await?.text().await?;
 		let document = scraper::Html::parse_document(&html);
 		static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
-			LazyLock::new(|| scraper::Selector::parse("#music-grid > li > a").unwrap());
-		for element in document.select(&MUSIC_GRID_SELECTOR) {
-			let mut item_url = artist.clone();
-			item_url.set_path(element.attr("href").unwrap());
-			println!("  found {}", item_url.as_str());
-			items.push(item_url);
+			LazyLock::new(|| scraper::Selector::parse("#music-grid").unwrap());
+		if let Some(music_grid) = document.select(&MUSIC_GRID_SELECTOR).next() {
+			if let Some(data_client_items) = music_grid.attr("data-client-items") {
+				let data_client_items: serde_json::Value = serde_json::from_str(data_client_items)?;
+				let data_client_items = data_client_items.as_array().unwrap();
+				for item in data_client_items {
+					let mut item_url = artist.clone();
+					item_url.set_path(item["page_url"].as_str().unwrap());
+					println!("  found {}", item_url.as_str());
+					items.push(item_url);
+				}
+			}
 		}
 
 		/*
