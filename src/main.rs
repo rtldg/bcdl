@@ -25,7 +25,7 @@ struct Args {
 	music_folder: String,
 	#[arg(short, long, env = "NO_ARTIST_SUBFOLDER")]
 	no_artist_subfolder: Option<bool>,
-	#[arg(required(true))]
+	#[arg(default_value = "./download.txt")]
 	urls_or_batch_file: Vec<String>,
 }
 
