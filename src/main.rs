@@ -5,11 +5,7 @@
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
 
-use std::{
-	io::BufReader,
-	path::PathBuf,
-	sync::LazyLock,
-};
+use std::{collections::HashMap, io::BufReader, path::PathBuf, sync::LazyLock};
 
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
@@ -30,6 +26,14 @@ struct Args {
 }
 
 static ARGS: LazyLock<Args> = LazyLock::new(Args::parse);
+
+static PUBLISHER_NAME_MAPPINGS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+	if let Ok(content) = std::fs::read_to_string("./publisher_name_mappings.json") {
+		serde_json::from_str(&content).unwrap()
+	} else {
+		HashMap::new()
+	}
+});
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -413,7 +417,12 @@ async fn download_item(
 	let publisher_folder = if ARGS.no_artist_subfolder.unwrap_or(false) {
 		music_folder.to_path_buf()
 	} else {
-		music_folder.join(fucky_sanitize_basename_for_windows(&item_info.publisher_name))
+		let publisher_name = if let Some(v) = PUBLISHER_NAME_MAPPINGS.get(&item_info.publisher_name) {
+			v
+		} else {
+			&item_info.publisher_name
+		};
+		music_folder.join(fucky_sanitize_basename_for_windows(publisher_name))
 	};
 	tokio::fs::create_dir_all(&publisher_folder).await?;
 

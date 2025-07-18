@@ -2,6 +2,7 @@
 *.env
 *.html
 
+publisher_name_mappings.json
 download.txt
 music
 run.cmd
