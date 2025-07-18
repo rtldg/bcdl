@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright 2021 yyyyyyyan <contact@yyyyyyyan.tech>
-// Copyright 2024 rtldg <rtldg@protonmail.com>
+// Copyright 2024-2025 rtldg <rtldg@protonmail.com>
 
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
@@ -641,7 +641,8 @@ async fn download_item(
 
 fn extract_zip(mut path: PathBuf) -> anyhow::Result<()> {
 	let reader = BufReader::new(std::fs::File::open(&path)?);
+	let mut zip = zip::ZipArchive::new(reader)?;
 	path.set_extension("");
-	zip_extract::extract(reader, &path, true)?;
+	zip.extract(&path)?;
 	Ok(())
 }
