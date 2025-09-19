@@ -126,6 +126,22 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 
 		let html = client.get(artist.clone()).send().await?.text().await?;
 		let document = scraper::Html::parse_document(&html);
+
+		static FEATURED_ITEMS_SELECTOR: LazyLock<scraper::Selector> = LazyLock::new(|| scraper::Selector::parse(".featured-item>a").unwrap());
+		for item in document.select(&FEATURED_ITEMS_SELECTOR) {
+			let href = item.attr("href").unwrap();
+			let mut item_url = if href.starts_with("https://") {
+				href.parse().unwrap()
+			} else {
+				let mut item_url = artist.clone();
+				item_url.set_path(href);
+				item_url
+			};
+			item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
+			println!("  found {}", item_url.as_str());
+			items.push(item_url);
+		}
+
 		static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
 			LazyLock::new(|| scraper::Selector::parse("#music-grid").unwrap());
 		if let Some(music_grid) = document.select(&MUSIC_GRID_SELECTOR).next() {
@@ -133,8 +149,15 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 				let data_client_items: serde_json::Value = serde_json::from_str(data_client_items)?;
 				let data_client_items = data_client_items.as_array().unwrap();
 				for item in data_client_items {
-					let mut item_url = artist.clone();
-					item_url.set_path(item["page_url"].as_str().unwrap());
+					let page_url = item["page_url"].as_str().unwrap();
+					let mut item_url = if page_url.starts_with("https://") {
+						page_url.parse().unwrap()
+					} else {
+						let mut item_url = artist.clone();
+						item_url.set_path(item["page_url"].as_str().unwrap());
+						item_url
+					};
+					item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
 					println!("  found {}", item_url.as_str());
 					items.push(item_url);
 				}
