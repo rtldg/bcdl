@@ -5,7 +5,12 @@
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
 
-use std::{collections::HashMap, io::BufReader, path::PathBuf, sync::LazyLock};
+use std::{
+	collections::{HashMap, HashSet},
+	io::BufReader,
+	path::PathBuf,
+	sync::LazyLock,
+};
 
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
@@ -72,14 +77,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) -> anyhow::Result<()> {
-	let mut items = vec![];
-	let mut artists = vec![];
+	let mut items = HashSet::new();
+	let mut artists = HashSet::new();
 
 	for url in urls {
 		if url.path().starts_with("/album/") || url.path().starts_with("/track/") {
-			items.push(url.clone());
+			items.insert(url.clone());
 		} else if url.path().starts_with("/music") || url.path() == "/" {
-			artists.push(url);
+			artists.insert(url);
 		} else {
 			return Err(anyhow!("non-bandcamp album or artist page url? url='{url}'"));
 		}
@@ -127,9 +132,7 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 		let html = client.get(artist.clone()).send().await?.text().await?;
 		let document = scraper::Html::parse_document(&html);
 
-		static FEATURED_ITEMS_SELECTOR: LazyLock<scraper::Selector> = LazyLock::new(|| scraper::Selector::parse(".featured-item>a").unwrap());
-		for item in document.select(&FEATURED_ITEMS_SELECTOR) {
-			let href = item.attr("href").unwrap();
+		let mut insert_item = |href: &str| {
 			let mut item_url = if href.starts_with("https://") {
 				href.parse().unwrap()
 			} else {
@@ -138,10 +141,24 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 				item_url
 			};
 			item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
-			println!("  found {}", item_url.as_str());
-			items.push(item_url);
+			if items.insert(item_url.clone()) {
+				println!("  found {}", item_url.as_str());
+			}
+		};
+
+		static FEATURED_ITEMS_SELECTOR: LazyLock<scraper::Selector> =
+			LazyLock::new(|| scraper::Selector::parse(".featured-item>a").unwrap());
+		for item in document.select(&FEATURED_ITEMS_SELECTOR) {
+			insert_item(item.attr("href").unwrap());
 		}
 
+		static MUSIC_GRID_ITEM_SELECTOR: LazyLock<scraper::Selector> =
+			LazyLock::new(|| scraper::Selector::parse(".music-grid-item>a").unwrap());
+		for item in document.select(&MUSIC_GRID_ITEM_SELECTOR) {
+			insert_item(item.attr("href").unwrap());
+		}
+
+		// this one for the pages that need to be paginated
 		static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
 			LazyLock::new(|| scraper::Selector::parse("#music-grid").unwrap());
 		if let Some(music_grid) = document.select(&MUSIC_GRID_SELECTOR).next() {
@@ -150,16 +167,7 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 				let data_client_items = data_client_items.as_array().unwrap();
 				for item in data_client_items {
 					let page_url = item["page_url"].as_str().unwrap();
-					let mut item_url = if page_url.starts_with("https://") {
-						page_url.parse().unwrap()
-					} else {
-						let mut item_url = artist.clone();
-						item_url.set_path(item["page_url"].as_str().unwrap());
-						item_url
-					};
-					item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
-					println!("  found {}", item_url.as_str());
-					items.push(item_url);
+					insert_item(page_url);
 				}
 			}
 		}
