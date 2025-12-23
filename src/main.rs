@@ -15,9 +15,12 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
 use futures_util::StreamExt;
+use reqwest::Url;
 use serde_json::json;
 use serde_json_path::JsonPath;
 use tokio::{io::AsyncWriteExt, task::spawn_blocking};
+
+mod fix_my_fucking_folder;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, flatten_help = true, disable_help_subcommand = true)]
@@ -28,6 +31,10 @@ struct Args {
 	no_artist_subfolder: Option<bool>,
 	#[arg(default_value = "./download.txt")]
 	urls_or_batch_file: Vec<String>,
+	#[arg(long)]
+	fix_my_fucking_folder_folder: Option<String>,
+	#[arg(long)]
+	fix_my_fucking_folder_url: Option<String>,
 }
 
 static ARGS: LazyLock<Args> = LazyLock::new(Args::parse);
@@ -49,8 +56,13 @@ async fn main() -> anyhow::Result<()> {
 	}
 
 	unsafe {
-		// unsafe in Rust 2024
 		std::env::set_var("RUST_BACKTRACE", "full");
+	}
+
+	if let Some(fix_my_fucking_folder_folder) = &ARGS.fix_my_fucking_folder_folder
+		&& let Some(fix_my_fucking_folder_url) = &ARGS.fix_my_fucking_folder_url
+	{
+		return fix_my_fucking_folder::lets_fucking_go(fix_my_fucking_folder_folder, fix_my_fucking_folder_url).await;
 	}
 
 	let mut urls = vec![];
@@ -129,66 +141,7 @@ async fn download_urls(urls: &[reqwest::Url], music_folder: &std::path::Path) ->
 		tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		println!("Checking for items from {}", artist.as_str());
 
-		let html = client.get(artist.clone()).send().await?.text().await?;
-		let document = scraper::Html::parse_document(&html);
-
-		let mut insert_item = |href: &str| {
-			let mut item_url = if href.starts_with("https://") {
-				href.parse().unwrap()
-			} else {
-				let mut item_url = artist.clone();
-				item_url.set_path(href);
-				item_url
-			};
-			item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
-			if items.insert(item_url.clone()) {
-				println!("  found {}", item_url.as_str());
-			}
-		};
-
-		static FEATURED_ITEMS_SELECTOR: LazyLock<scraper::Selector> =
-			LazyLock::new(|| scraper::Selector::parse(".featured-item>a").unwrap());
-		for item in document.select(&FEATURED_ITEMS_SELECTOR) {
-			insert_item(item.attr("href").unwrap());
-		}
-
-		static MUSIC_GRID_ITEM_SELECTOR: LazyLock<scraper::Selector> =
-			LazyLock::new(|| scraper::Selector::parse(".music-grid-item>a").unwrap());
-		for item in document.select(&MUSIC_GRID_ITEM_SELECTOR) {
-			insert_item(item.attr("href").unwrap());
-		}
-
-		// this one for the pages that need to be paginated
-		static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
-			LazyLock::new(|| scraper::Selector::parse("#music-grid").unwrap());
-		if let Some(music_grid) = document.select(&MUSIC_GRID_SELECTOR).next() {
-			if let Some(data_client_items) = music_grid.attr("data-client-items") {
-				let data_client_items: serde_json::Value = serde_json::from_str(data_client_items)?;
-				let data_client_items = data_client_items.as_array().unwrap();
-				for item in data_client_items {
-					let page_url = item["page_url"].as_str().unwrap();
-					insert_item(page_url);
-				}
-			}
-		}
-
-		/*
-		let music_grid: serde_json::Value = serde_json::from_str(
-			document
-				.select(&MUSIC_GRID_SELECTOR)
-				.next()
-				.context("couldn't find pagedata info on page")?
-				.attr("data-client-items")
-				.context("missing pagedata?")?,
-		)?;
-		for item in music_grid.as_array().unwrap() {
-			let mut item_url = artist.clone();
-			item_url.set_path(item["page_url"].as_str().unwrap());
-			println!("  found {}", item_url.as_str());
-			items.push(item_url);
-		}
-		// println!("\n{}\n", serde_json::to_string_pretty(&music_grid).unwrap());
-		*/
+		items.extend(get_items_from_artist(&client, artist).await?.into_iter());
 	}
 
 	for item in &items {
@@ -279,6 +232,73 @@ fn get_file_download_path(item_info: &ItemInfo, publisher_folder: &std::path::Pa
 		};
 
 	publisher_folder.join(filename)
+}
+
+async fn get_items_from_artist(client: &reqwest::Client, artist: &Url) -> anyhow::Result<HashSet<Url>> {
+	let mut items = HashSet::new();
+
+	let html = client.get(artist.clone()).send().await?.text().await?;
+	let document = scraper::Html::parse_document(&html);
+
+	let mut insert_item = |href: &str| {
+		let mut item_url = if href.starts_with("https://") {
+			href.parse().unwrap()
+		} else {
+			let mut item_url = artist.clone();
+			item_url.set_path(href);
+			item_url
+		};
+		item_url.set_query(None); // remove ?label=123123123&tab=music stuff...
+		if items.insert(item_url.clone()) {
+			println!("  found {}", item_url.as_str());
+		}
+	};
+
+	static FEATURED_ITEMS_SELECTOR: LazyLock<scraper::Selector> =
+		LazyLock::new(|| scraper::Selector::parse(".featured-item>a").unwrap());
+	for item in document.select(&FEATURED_ITEMS_SELECTOR) {
+		insert_item(item.attr("href").unwrap());
+	}
+
+	static MUSIC_GRID_ITEM_SELECTOR: LazyLock<scraper::Selector> =
+		LazyLock::new(|| scraper::Selector::parse(".music-grid-item>a").unwrap());
+	for item in document.select(&MUSIC_GRID_ITEM_SELECTOR) {
+		insert_item(item.attr("href").unwrap());
+	}
+
+	// this one for the pages that need to be paginated
+	static MUSIC_GRID_SELECTOR: LazyLock<scraper::Selector> =
+		LazyLock::new(|| scraper::Selector::parse("#music-grid").unwrap());
+	if let Some(music_grid) = document.select(&MUSIC_GRID_SELECTOR).next() {
+		if let Some(data_client_items) = music_grid.attr("data-client-items") {
+			let data_client_items: serde_json::Value = serde_json::from_str(data_client_items)?;
+			let data_client_items = data_client_items.as_array().unwrap();
+			for item in data_client_items {
+				let page_url = item["page_url"].as_str().unwrap();
+				insert_item(page_url);
+			}
+		}
+	}
+
+	/*
+	let music_grid: serde_json::Value = serde_json::from_str(
+		document
+			.select(&MUSIC_GRID_SELECTOR)
+			.next()
+			.context("couldn't find pagedata info on page")?
+			.attr("data-client-items")
+			.context("missing pagedata?")?,
+	)?;
+	for item in music_grid.as_array().unwrap() {
+		let mut item_url = artist.clone();
+		item_url.set_path(item["page_url"].as_str().unwrap());
+		println!("  found {}", item_url.as_str());
+		items.push(item_url);
+	}
+	// println!("\n{}\n", serde_json::to_string_pretty(&music_grid).unwrap());
+	*/
+
+	Ok(items)
 }
 
 fn parse_pagedata(document: &scraper::Html) -> anyhow::Result<serde_json::Value> {
