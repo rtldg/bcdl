@@ -5,10 +5,11 @@
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
 	collections::{HashMap, HashSet},
 	io::BufReader,
-	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	sync::LazyLock,
 };
@@ -705,11 +706,14 @@ fn extract_zip(mut path: PathBuf) -> anyhow::Result<()> {
 	let mut zip = zip::ZipArchive::new(reader)?;
 	path.set_extension("");
 	zip.extract(&path)?;
-	// fix file permissions because something is fucked and idk what
-	let dir = std::fs::read_dir(&path)?;
-	let perms = std::fs::Permissions::from_mode(0o644);
-	for entry in dir {
-		std::fs::set_permissions(entry?.path(), perms.clone())?;
+	#[cfg(unix)]
+	{
+		// fix file permissions because something is fucked and idk what
+		let dir = std::fs::read_dir(&path)?;
+		let perms = std::fs::Permissions::from_mode(0o644);
+		for entry in dir {
+			std::fs::set_permissions(entry?.path(), perms.clone())?;
+		}
 	}
 	Ok(())
 }
