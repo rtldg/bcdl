@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright 2021 yyyyyyyan <contact@yyyyyyyan.tech>
-// Copyright 2024-2025 rtldg <rtldg@protonmail.com>
+// Copyright 2024-2026 rtldg <rtldg@protonmail.com>
 
 // https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/bandcamp.py
 // https://github.dev/yyyyyyyan/bandcamper
