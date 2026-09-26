@@ -375,7 +375,9 @@ impl ItemInfo {
 
 		let free_download = if let serde_json::Value::String(s) = &tralbum["freeDownloadPage"] {
 			Some(FreeDownload::Page(s.parse()?))
-		} else if tralbum["current"]["require_email"].as_i64().unwrap_or(0) == 1 {
+		} else if tralbum["current"]["require_email"].as_i64().unwrap_or(0) == 1
+			&& tralbum["current"]["minimum_price"].as_f64().unwrap_or(0.0) <= 0.0
+		{
 			Some(FreeDownload::RequiresEmail)
 		} else {
 			// not available for free download it seems...
@@ -523,6 +525,7 @@ async fn download_item(
 		email_form_url.set_path("/email_download");
 		let resp: serde_json::Value = client.post(email_form_url).form(&form).send().await?.json().await?;
 		if !resp["ok"].as_bool().unwrap() {
+			dbg!(&resp);
 			bail!("failed to download with email...");
 		}
 
